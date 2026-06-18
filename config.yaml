@@ -1,0 +1,68 @@
+# Zoom 实时翻译工具配置
+
+audio:
+  sample_rate: 16000
+  # 留空则自动检测；可填设备名称关键字
+  loopback_device: ""
+  microphone_device: ""
+  virtual_cable_device: "CABLE Input"
+
+whisper:
+  # tiny | base | small | medium — 越大越准越慢
+  english_model: small.en
+  chinese_model: small
+  device: cpu
+  compute_type: int8
+  # 越小越快，1 适合低延迟同声传译
+  beam_size: 1
+
+translation:
+  source_en: en
+  target_zh: zh
+  source_zh: zh
+  target_en: en
+
+tts:
+  # 英文男声示例: en-US-GuyNeural | en-US-ChristopherNeural | en-US-EricNeural
+  voice: en-US-ChristopherNeural
+  rate: "+10%"
+  # 英→中中文播报音色
+  zh_voice: zh-CN-XiaoxiaoNeural
+  zh_rate: "+0%"
+
+vad:
+  # WebRTC VAD 激进度 0-3；0 最宽松，句中短停顿不易被切断
+  aggressiveness: 1
+  # 连续静音多少毫秒视为一句话结束
+  silence_ms: 700
+  # 最短语音段（毫秒），低于此忽略
+  min_speech_ms: 400
+  # 最长语音段（毫秒），超过强制切句
+  max_speech_ms: 12000
+  # 语音开始前保留的音频（毫秒），避免首字被切
+  pre_roll_ms: 200
+  # 句末保留的静音填充（毫秒），其余尾部静音会被裁掉
+  tail_pad_ms: 150
+
+# 同声传译相关设置
+si:
+  # 中→英输入模式: continuous（VAD 连续）| ptt（按住 Space）
+  zh_input_mode: continuous
+  # 翻译结果按标点分句逐段 TTS，降低首句延迟
+  tts_chunked: true
+  # 英→中是否默认开启中文 TTS 播报（可在界面勾选覆盖）
+  en_tts_default: false
+
+startup:
+  # 启动时预加载 Whisper、Argos 等（推荐开启，避免首次按键才等待）
+  preload_models: true
+
+ui:
+  ptt_key: Space
+  max_subtitle_lines: 50
+
+test:
+  # 虚拟麦克风测试时朗读的英文
+  phrase: "Hi, I'm Ben. This is a test. Can you hear me clearly ?"
+  # 默认是否开启测试模式（先耳机试听，再送入 Zoom）
+  test_mode_default: false
