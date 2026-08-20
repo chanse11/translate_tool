@@ -1,24 +1,31 @@
-# Zoom 实时翻译工具
+# 实时翻译工具
 
-在 Zoom 桌面版中进行中英实时对话翻译：
+Windows 桌面端中英同传，面向 Zoom / Teams 等会议：采集对方英语显示中文字幕，把你说的中文译成英文并送进虚拟麦克风。
 
-- **英 → 中**：采集 Zoom 播放音频，本地 ASR + 离线翻译，界面显示中文字幕
-- **中 → 英**：按住 Space 说中文，本地 ASR + 离线翻译 + Edge TTS，英文播放到 VB-Cable 虚拟麦克风
+支持两套引擎，启动后在左侧 **翻译引擎** 里选择，点 **确定** 再生效：
+
+| 引擎 | 说明 |
+|------|------|
+| **阿里百炼（LiveTranslate）** | 默认。云端实时识别 + 翻译 + 合成，延迟低，可预设音色或声音复刻 |
+| **本地离线（Whisper + Argos）** | 英语环回 + 中文按住说话，ASR/翻译在本地，英文靠 Edge TTS |
 
 ## 环境要求
 
 - Windows 10/11
-- Python 3.10+（开发/打包用）
+- Python 3.10+（开发 / 打包）
 - [VB-Audio Virtual Cable](https://vb-audio.com/Cable/)（免费）
-- 网络（仅 Edge TTS 合成英文时需要；ASR 与翻译均本地）
+- 百炼引擎：阿里云百炼 API Key，以及到 `dashscope.aliyuncs.com` 的网络
+- 本地引擎：首次会下载 Whisper / Argos 模型；Edge TTS 合成英文时需要网络
 
-## Zoom 音频设置
+## 会议软件音频
 
 1. 安装 VB-Audio Virtual Cable
-2. Zoom → 设置 → 音频：
-   - **扬声器**：你的耳机/音箱（正常收听）
+2. Zoom / Teams → 音频：
+   - **扬声器**：你的耳机 / 音箱（正常听对方）
    - **麦克风**：`CABLE Output (VB-Audio Virtual Cable)`
-3. 本工具会使用你的**物理麦克风**录中文，Zoom 不会直接使用物理麦
+3. 本工具用你的**物理麦克风**录中文；会议软件不要直接用物理麦，否则对方会听到原声中文
+
+建议戴耳机，避免扬声器回灌进麦克风。
 
 ## 安装与运行
 
@@ -30,84 +37,148 @@ pip install -r requirements.txt
 python main.py
 ```
 
-首次运行会自动下载：
+也可指定配置文件：
 
-- Whisper 模型（英 `small.en`、中 `small`，可在 `config.yaml` 修改）
-- Argos 离线翻译包（en↔zh）
+```powershell
+python main.py D:\path\to\config.yaml
+```
+
+开发时配置在项目根目录 `config.yaml`；打包后的 exe 会在 exe 同级生成一份可编辑的 `config.yaml`。
+
+**不要把含 API Key 的 `config.yaml` 提交到 Git。** 分发请用 `packaging/config.yaml`（已脱敏）。
 
 ## 使用说明
 
-1. 启动程序，点击 **「开始监听」** 采集 Zoom 英语并显示中文翻译
-2. **按住 Space**（或按住界面按钮）说中文
-3. **松手** 后自动识别、翻译、TTS，英文从 VB-Cable 进入 Zoom
-4. TTS 播放期间，英→中会暂停识别，避免回声
-5. 点击 **「测试虚拟麦克风」**：向 VB-Cable 播放测试英文；勾选 **「耳机监听」** 可在耳机听到与送入虚拟麦相同的内容
+### 1. 确认引擎
 
-### 虚拟麦克风测试
+1. 选 **阿里百炼** 或 **本地离线**
+2. 百炼需填写 **API Key**（`sk-…`），空间 ID 可选
+3. 中→英发音（仅百炼）：
+   - **预设音色**：如 `Ethan`（晨煦，默认男声）
+   - **跟随我的声音（单人推荐）**：会话内实时复刻一次（`clone_once`）
+   - **跟随当前说话人**：每句实时复刻（`clone_always`）
+   - **使用已复刻音色 ID**：需先点「录制我的音色」或填已有 ID
+4. 点 **确定**
 
-- **耳机监听（推荐）**：勾选后，测试音频同时送到 VB-Cable 和你的耳机，耳机里听到的就是送入虚拟麦的内容
-- **仅虚拟麦**：取消勾选，只写入 VB-Cable；可在 Windows「声音 → 录制 → CABLE Output → 属性 → 侦听」里启用「侦听此设备」，用扬声器确认 Zoom 会收到的声音
+### 2. 英 → 中
+
+点 **开始英→中**：采集会议扬声器环回，字幕显示在「对方说的 · 英 → 中」。
+
+可选 **英→中中文 TTS（耳机）**，把中文译文播到本机耳机（默认关闭）。
+
+### 3. 中 → 英
+
+- **持续拾取**（百炼推荐）：点 **开始中→英**，对着麦克风连续说中文，说完一句约等 1 秒静音后出英文。
+- **按住说话**：按住 **Space** 或界面按钮，松手后翻译。
+
+英文会写入 VB-Cable，会议里对方听到的是译文。勾选 **测试模式（先耳机试听）** 可同时在耳机听到相同内容。
+
+**测试虚拟麦克风**：不说话，直接往虚拟麦送一句测试英文，用来确认 Zoom 麦克风选对了。
+
+### 4. 其他
+
+- **AI 助手**：点英→中条目旁的「发送」，把中文译文交给百炼对话模型（如 `qwen-plus`），右侧给出可在会上使用的回复建议。
+- **快速翻译**：底部文本 / 按住说话，做一次性中英互译。
+- **翻译历史**：本地 SQLite 记录，点击可回填。
 
 ## 配置
 
-编辑 `config.yaml`：
+编辑 `config.yaml`（或界面里改引擎后点确定会写回）。常用项：
 
 | 项 | 说明 |
 |----|------|
-| `audio.loopback_device` | 环回设备关键字，留空自动选默认扬声器 |
+| `engine.backend` | `bailian` 或 `local` |
 | `audio.microphone_device` | 麦克风关键字，留空用系统默认 |
 | `audio.virtual_cable_device` | 虚拟麦关键字，默认 `CABLE Input` |
-| `whisper.english_model` | 英语模型，如 `base.en`、`small.en` |
-| `whisper.chinese_model` | 中文模型，如 `base`、`small` |
-| `tts.voice` | Edge TTS 音色，如 `en-US-JennyNeural` |
+| `audio.loopback_device` | 环回设备关键字，留空自动选默认扬声器 |
+| `bailian.api_key` | 百炼 API Key |
+| `bailian.workspace_id` | 可选业务空间 ID |
+| `bailian.model` | 默认 `qwen3.5-livetranslate-flash-realtime` |
+| `bailian.zh_en_voice_mode` | `preset` / `clone_once` / `clone_always` / `custom` |
+| `bailian.zh_en_voice` | 预设音色名，如 `Ethan` |
+| `bailian.silence_duration_ms` | 云端断句静音，默认 `1000`（过短会切半句） |
+| `bailian.vad_threshold` | VAD 灵敏度，默认 `0.2` |
+| `bailian.prefix_padding_ms` | 句首保留音频，默认 `500`，减轻「你/我」被切掉 |
+| `bailian.stream_audio` | `false`：整句收齐再播；`true`：边收边播（更低延迟，易切半句） |
+| `si.zh_input_mode` | `continuous` 持续拾取 / `ptt` 按住说话 |
+| `whisper.*` | 仅本地引擎：模型名、device、beam_size |
+| `tts.voice` | 本地引擎 Edge TTS 英文音色 |
+| `llm.model` | AI 助手模型，默认 `qwen-plus` |
 
 ## 打包为 exe
 
 ```powershell
-pip install pyinstaller
-pyinstaller build.spec
+powershell -ExecutionPolicy Bypass -File .\scripts\build_win.ps1
 ```
 
-输出目录：`dist/ZoomTranslate/ZoomTranslate.exe`
+或：
 
-> Whisper 与 Argos 模型不在 exe 内，首次运行仍会下载到用户目录。可将模型缓存目录复制到 exe 同级以离线分发。
+```powershell
+pip install -r requirements.txt
+python -m PyInstaller --noconfirm --clean build.spec
+```
+
+输出：`dist/TranslateTool/TranslateTool.exe`
+
+打包使用 `packaging/config.yaml`（不含开发机密钥）。本地引擎的 Whisper / Argos 模型不打进 exe，首次运行仍会下载。
 
 ## 目录结构
 
 ```
 translate_tool/
-├── main.py              # 入口
-├── config.yaml          # 配置
-├── audio/               # 音频采集与播放
-├── asr/                 # faster-whisper
-├── translate/           # Argos 离线翻译
-├── tts/                 # Edge TTS
-├── pipeline/            # 双向流水线
-└── ui/                  # PyQt6 界面
+├── main.py                 # 入口
+├── config.yaml             # 开发机配置（含密钥，勿提交）
+├── packaging/              # 分发用脱敏配置
+├── audio/                  # 麦克风、环回、虚拟麦播放
+├── asr/                    # faster-whisper（本地引擎）
+├── translate/              # Argos 离线翻译（本地引擎）
+├── tts/                    # Edge TTS（本地引擎）
+├── bailian/                # 百炼 LiveTranslate / 对话 / 音色注册
+├── pipeline/               # 本地与百炼双向流水线
+├── storage/                # 翻译历史
+├── ui/                     # PyQt6 界面
+├── assets/                 # 图标
+└── scripts/build_win.ps1   # Windows 打包
 ```
 
 ## 常见问题
 
-**Zoom 里听不到我的英文**
+**会议里听不到我的英文**
 
-- 确认 Zoom 麦克风为 `CABLE Output`
-- 在 Windows 声音设置中，确认 `CABLE Input` 为默认录制设备或与本工具配置一致
-- 点击程序内状态，确认 TTS 播放无报错
+- 会议麦克风必须是 `CABLE Output`
+- 本工具 `virtual_cable_device` 应对应 `CABLE Input`
+- 先点「测试虚拟麦克风」，必要时勾选「测试模式」用耳机确认
 
-**听不出中文翻译**
+**中文被切成半句、或句首漏字**
 
-- 本工具仅显示字幕，不播放中文语音（按设计）
+- 保持 `silence_duration_ms: 1000`、`vad_threshold: 0.2`、`stream_audio: false`
+- 句中停顿超过约 1 秒会被当成一句结束；说快、少换气会更稳
+- `prefix_padding_ms: 500` 用于保留句首轻声音节
 
-**识别慢**
+**上一句还在出声时，下一句没反应**
 
-- 在 `config.yaml` 将 Whisper 改为 `base.en` / `base`
-- 关闭其他占用 CPU 的程序
+- 请使用当前 master：播放已与网络收发分开，且不会在译完后把麦克风卡住
+- 仍无反应时看 `logs/translate_tool.log` 是否出现 `服务端检测到语音开始`
 
-**Edge TTS 失败**
+**声音复刻仍是默认女声**
 
-- 检查网络连接
-- 可更换 `tts.voice` 为其他英文音色
+- 「跟随我的声音」要连续说几句后才会像你；复刻完成前可能是默认音色
+- 持续拾取比按住说话更容易攒够复刻音频
+- 「录制我的音色」走预注册，可能需要百炼声音复刻权限；实时跟随一般不必先录
+
+**听不到中文翻译（英→中）**
+
+- 默认只显示字幕。勾选「英→中中文 TTS」才会在耳机播放中文
+
+**本地引擎识别慢**
+
+- `config.yaml` 把 Whisper 改为 `base.en` / `base`
+- 关掉其它占 CPU 的程序
+
+**Edge TTS / 百炼连接失败**
+
+- 检查网络；百炼确认 API Key、区域（默认 `cn-beijing`）
 
 ## 许可证
 
-本项目仅供学习与个人使用。Zoom、VB-Audio、Edge TTS 等均为各自厂商产品。
+本项目仅供学习与个人使用。Zoom、Teams、VB-Audio、阿里云百炼、Edge TTS 等均为各自厂商产品。
