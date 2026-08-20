@@ -7,3 +7,12 @@ logs/
 *.spec.bak
 .pytest_cache/
 *.egg-info/
+
+# 含 API Key 等密钥，只保留 packaging/ 里的脱敏模板
+/config.yaml
+.env
+.env.*
+
+# 本地运行数据
+data/translate_history.db
+
