@@ -18,7 +18,8 @@ class PttKeyFilter(QObject):
         if event.type() == QEvent.Type.KeyPress:
             key_event = event
             if (
-                key_event.key() == Qt.Key.Key_Space
+                getattr(win, "_zh_input_mode", "") == "ptt"
+                and key_event.key() == Qt.Key.Key_Space
                 and not key_event.isAutoRepeat()
                 and not getattr(win, "_ptt_active", False)
             ):
@@ -28,7 +29,8 @@ class PttKeyFilter(QObject):
         if event.type() == QEvent.Type.KeyRelease:
             key_event = event
             if (
-                key_event.key() == Qt.Key.Key_Space
+                getattr(win, "_zh_input_mode", "") == "ptt"
+                and key_event.key() == Qt.Key.Key_Space
                 and not key_event.isAutoRepeat()
                 and getattr(win, "_ptt_active", False)
             ):

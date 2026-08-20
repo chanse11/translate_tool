@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 class SubtitleEntry:
     english: str
     chinese: str
+    partial: bool = False
 
 
 class EnToZhPipeline:

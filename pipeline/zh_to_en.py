@@ -23,11 +23,16 @@ from tts.tts_queue import TTSQueue
 
 logger = logging.getLogger(__name__)
 
+_MAX_UTTERANCE_QUEUE = 10
+_MAX_TTS_QUEUE = 10
+
 
 @dataclass
 class TranslationResult:
     chinese: str
     english: str
+    partial: bool = False
+    warning: str = ""
 
 
 class ZhToEnPipeline:
@@ -93,6 +98,12 @@ class ZhToEnPipeline:
         self._queue_lock = threading.Lock()
         self._stop_event = threading.Event()
 
+        self._tts_play_queue: list[str] = []
+        self._tts_play_lock = threading.Lock()
+        self._tts_play_wake = threading.Event()
+        self._tts_play_stop = threading.Event()
+        self._tts_play_worker: threading.Thread | None = None
+
     @property
     def input_mode(self) -> str:
         return self._input_mode
@@ -111,7 +122,19 @@ class ZhToEnPipeline:
 
     @property
     def is_tts_playing(self) -> bool:
-        return self._tts_playing or self._tts_queue.is_playing or self._playout.is_playing
+        with self._tts_play_lock:
+            queued = len(self._tts_play_queue) > 0
+        return (
+            self._tts_playing
+            or queued
+            or self._tts_queue.is_playing
+            or self._playout.is_playing
+        )
+
+    @property
+    def play_queue_size(self) -> int:
+        with self._tts_play_lock:
+            return len(self._tts_play_queue) + (1 if self._tts_playing else 0)
 
     def _require_ready(self) -> None:
         if not self._resources.is_ready:
@@ -137,6 +160,8 @@ class ZhToEnPipeline:
             self._config.get("audio", {}).get("microphone_device", "")
         )
         self._stop_event.clear()
+        self._clear_tts_play_queue()
+        self._ensure_tts_play_worker()
         self._mic_stream = MicStreamCapture(
             device_index=mic_index,
             sample_rate=self._sample_rate,
@@ -162,6 +187,7 @@ class ZhToEnPipeline:
         if self._worker:
             self._worker.join(timeout=5)
             self._worker = None
+        self._stop_tts_play_worker()
         self._segmenter.reset()
         self._set_status("中→英连续监听已停止")
 
@@ -169,9 +195,11 @@ class ZhToEnPipeline:
         if not self._continuous_running:
             return
         for utterance in self._segmenter.feed(chunk):
-            if self.is_tts_playing or self._processing:
-                continue
+            # 播放/处理中仍入队，实现边说边译并排队播报。
             with self._queue_lock:
+                if len(self._queue) >= _MAX_UTTERANCE_QUEUE:
+                    self._queue.pop(0)
+                    logger.warning("语音队列已满，丢弃最旧片段")
                 self._queue.append(utterance)
 
     def _process_loop(self) -> None:
@@ -183,11 +211,7 @@ class ZhToEnPipeline:
             if item is None:
                 self._stop_event.wait(0.05)
                 continue
-            if self.is_tts_playing:
-                with self._queue_lock:
-                    self._queue.insert(0, item)
-                self._stop_event.wait(0.1)
-                continue
+            # 识别+翻译与播放解耦：播报中仍继续处理后续语音。
             self._process(item)
 
     def test_virtual_mic(self) -> None:
@@ -222,12 +246,14 @@ class ZhToEnPipeline:
         if self._input_mode != "ptt":
             return
         self._require_ready()
-        if self.is_tts_playing:
-            self._set_status("TTS 播放中，请稍候…")
-            return
         self._ensure_virtual_cable()
+        self._ensure_tts_play_worker()
         self._mic.start()
-        self._set_status("录音中…（松手发送）")
+        pending = self.play_queue_size
+        if pending > 0:
+            self._set_status(f"录音中…（松手排队，待播 {pending} 条）")
+        else:
+            self._set_status("录音中…（松手发送）")
 
     def ptt_release(self) -> None:
         if self._input_mode != "ptt":
@@ -248,7 +274,11 @@ class ZhToEnPipeline:
                 audio, language="zh", sample_rate=self._sample_rate
             )
             if not chinese.strip():
-                self._set_status("未识别到中文，请重试" if self._input_mode == "ptt" else "中→英连续监听中…")
+                self._set_status(
+                    "未识别到中文，请重试"
+                    if self._input_mode == "ptt"
+                    else "中→英连续监听中…"
+                )
                 return
 
             self._set_status("翻译为英文…")
@@ -256,27 +286,112 @@ class ZhToEnPipeline:
                 chinese, self._from_code, self._to_code
             )
             if not english.strip():
-                self._set_status("翻译失败，请重试" if self._input_mode == "ptt" else "中→英连续监听中…")
+                self._set_status(
+                    "翻译失败，请重试"
+                    if self._input_mode == "ptt"
+                    else "中→英连续监听中…"
+                )
                 return
 
             result = TranslationResult(chinese=chinese, english=english)
             self._on_result(result)
-
-            self._set_status("合成英文语音…")
-            self._sync_tts_queue_test_mode()
-            if self._on_tts_start:
-                self._on_tts_start()
-            self._tts_playing = True
-            self._tts_queue.play_text(english, chunked=self._tts_chunked)
-            self._set_status("中→英连续监听中…" if self._continuous_running else "就绪")
+            self._enqueue_tts(english)
+            pending = self.play_queue_size
+            if self._continuous_running:
+                if pending > 1:
+                    self._set_status(f"中→英连续监听中…（待播 {pending} 条）")
+                else:
+                    self._set_status("中→英连续监听中…")
+            elif pending > 1:
+                self._set_status(f"已入队，待播 {pending} 条")
+            else:
+                self._set_status("就绪")
         except Exception as exc:
             logger.exception("中→英处理失败: %s", exc)
             self._set_status(f"错误: {exc}")
         finally:
-            self._tts_playing = False
             self._processing = False
+
+    def _clear_tts_play_queue(self) -> None:
+        with self._tts_play_lock:
+            self._tts_play_queue.clear()
+        self._tts_play_wake.set()
+
+    def _ensure_tts_play_worker(self) -> None:
+        if self._tts_play_worker is not None and self._tts_play_worker.is_alive():
+            return
+        self._tts_play_stop.clear()
+        self._tts_play_worker = threading.Thread(
+            target=self._tts_play_loop, daemon=True
+        )
+        self._tts_play_worker.start()
+
+    def _stop_tts_play_worker(self) -> None:
+        self._tts_play_stop.set()
+        self._clear_tts_play_queue()
+        if self._tts_play_worker is not None:
+            self._tts_play_worker.join(timeout=5)
+            self._tts_play_worker = None
+
+    def _enqueue_tts(self, english: str) -> None:
+        text = english.strip()
+        if not text:
+            return
+        self._ensure_tts_play_worker()
+        with self._tts_play_lock:
+            if len(self._tts_play_queue) >= _MAX_TTS_QUEUE:
+                dropped = self._tts_play_queue.pop(0)
+                logger.warning("TTS 队列已满，丢弃最旧条目: %s", dropped[:40])
+            self._tts_play_queue.append(text)
+            pending = len(self._tts_play_queue) + (1 if self._tts_playing else 0)
+        self._tts_play_wake.set()
+        if pending > 1:
+            self._set_status(f"译文已入队，待播 {pending} 条")
+
+    def _tts_play_loop(self) -> None:
+        while not self._tts_play_stop.is_set():
+            self._tts_play_wake.wait(timeout=0.2)
+            self._tts_play_wake.clear()
+            while not self._tts_play_stop.is_set():
+                text: str | None = None
+                with self._tts_play_lock:
+                    if self._tts_play_queue:
+                        text = self._tts_play_queue.pop(0)
+                if text is None:
+                    break
+                self._play_tts_text(text)
+
+    def _play_tts_text(self, english: str) -> None:
+        try:
+            self._sync_tts_queue_test_mode()
+            if self._on_tts_start:
+                self._on_tts_start()
+            self._tts_playing = True
+            remaining = self.play_queue_size
+            if remaining > 1:
+                self._set_status(f"合成英文语音…（队列剩 {remaining - 1} 条）")
+            else:
+                self._set_status("合成英文语音…")
+            self._tts_queue.play_text(english, chunked=self._tts_chunked)
+        except Exception as exc:
+            logger.exception("TTS 播放失败: %s", exc)
+            self._set_status(f"TTS 失败: {exc}")
+        finally:
+            self._tts_playing = False
             if self._on_tts_end:
                 self._on_tts_end()
+            if self._continuous_running:
+                pending = self.play_queue_size
+                if pending > 0:
+                    self._set_status(f"中→英连续监听中…（待播 {pending} 条）")
+                else:
+                    self._set_status("中→英连续监听中…")
+            else:
+                pending = self.play_queue_size
+                if pending > 0:
+                    self._set_status(f"待播 {pending} 条…")
+                else:
+                    self._set_status("就绪")
 
     def _set_status(self, msg: str) -> None:
         if self._on_status:

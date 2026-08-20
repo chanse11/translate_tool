@@ -29,26 +29,30 @@ vad:
 engine:
   backend: bailian
 bailian:
-  api_key: sk-bbf602829bc348d98079cbd8bce7286f
+  api_key: ''
   workspace_id: ''
   region: cn-beijing
   ws_base: wss://dashscope.aliyuncs.com/api-ws/v1/realtime
   model: qwen3.5-livetranslate-flash-realtime
-  zh_en_voice_mode: clone_once
+  zh_en_voice_mode: preset
   zh_en_voice: Ethan
+  zh_en_custom_voice_id: ''
+  # 云端断句：官方默认 1000ms / 0.2。500ms 太短，句中停顿会被切成半句
   silence_duration_ms: 1000
   vad_threshold: 0.2
+  # 语音开始前保留的音频（毫秒），避免句首被服务端 VAD 切掉
   prefix_padding_ms: 500
   ptt_tail_silence_ms: 250
   stream_audio: false
 si:
-  zh_input_mode: continuous
+  zh_input_mode: continuous  # continuous=持续拾取 | ptt=按住说话
   tts_chunked: true
   en_tts_default: false
 llm:
   enabled: true
   model: qwen-plus
-  system_prompt: 你是会议助手。根据对方刚说的中文内容，给出简洁、可直接在会上使用的回复建议。
+  system_prompt: |
+    你是会议助手。根据对方刚说的中文内容，给出简洁、可直接在会上使用的回复建议。
 startup:
   preload_models: false
 ui:

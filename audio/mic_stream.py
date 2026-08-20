@@ -46,7 +46,16 @@ class MicStreamCapture:
             callback=self._callback,
         )
         self._stream.start()
-        logger.info("麦克风持续采集已启动 (device=%s)", self._device_index)
+        try:
+            info = sd.query_devices(self._device_index)
+            name = info.get("name", "?") if isinstance(info, dict) else str(info)
+        except Exception:
+            name = "?"
+        logger.info(
+            "麦克风持续采集已启动 (device=%s name=%s)",
+            self._device_index,
+            name,
+        )
 
     def stop(self) -> None:
         self._running = False

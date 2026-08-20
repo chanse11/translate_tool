@@ -92,18 +92,60 @@ def resolve_loopback_device(keyword: str = "") -> dict | None:
     return get_default_loopback_device()
 
 
+def _default_io_indices() -> tuple[int | None, int | None]:
+    """读取 sounddevice 默认输入/输出索引。
+
+    注意：``sd.default.device`` 实际类型是 ``_InputOutputPair``，
+    不是 list/tuple；用 isinstance 判断会失败并误选设备 0（Sound Mapper）。
+    """
+    try:
+        default = sd.default.device
+        in_idx = int(default[0]) if default[0] is not None and int(default[0]) >= 0 else None
+        out_idx = int(default[1]) if default[1] is not None and int(default[1]) >= 0 else None
+        return in_idx, out_idx
+    except Exception:
+        return None, None
+
+
+def _is_mapper_device(name: str) -> bool:
+    lower = (name or "").lower()
+    return "sound mapper" in lower or "primary sound" in lower
+
+
+def _is_virtual_cable_input(name: str) -> bool:
+    lower = (name or "").lower()
+    return (
+        "cable output" in lower
+        or "vb-audio" in lower
+        or "voicemeeter" in lower
+        or "virtual cable" in lower
+    )
+
+
+def _is_usable_mic(name: str) -> bool:
+    return not _is_mapper_device(name) and not _is_virtual_cable_input(name)
+
+
 def resolve_input_device(keyword: str = "") -> int | None:
     devices = list_input_devices()
     if keyword:
         found = find_device_by_keyword(devices, keyword)
         if found and found.index is not None:
             return found.index
-    try:
-        default = sd.default.device
-        if isinstance(default, (tuple, list)) and default[0] >= 0:
-            return int(default[0])
-    except Exception:
-        pass
+    in_idx, _ = _default_io_indices()
+    if in_idx is not None:
+        try:
+            info = sd.query_devices(in_idx)
+            name = info.get("name", "") if isinstance(info, dict) else str(info)
+        except Exception:
+            name = ""
+        # 桌面版实际走系统默认/Mapper，能采到插孔麦。不要因为 Mapper 就改选别的设备。
+        if not _is_virtual_cable_input(name):
+            return in_idx
+        logger.warning("系统默认输入是虚拟线缆（%s），改选物理麦克风", name or in_idx)
+    for dev in devices:
+        if dev.index is not None and _is_usable_mic(dev.name):
+            return dev.index
     if devices:
         return devices[0].index
     return None
@@ -111,12 +153,9 @@ def resolve_input_device(keyword: str = "") -> int | None:
 
 def get_default_output_device() -> int | None:
     """系统默认播放设备（耳机/扬声器），用于测试监听。"""
-    try:
-        default = sd.default.device
-        if isinstance(default, (tuple, list)) and default[1] >= 0:
-            return int(default[1])
-    except Exception:
-        pass
+    _, out_idx = _default_io_indices()
+    if out_idx is not None:
+        return out_idx
     devices = list_output_devices()
     if devices:
         return devices[0].index
@@ -129,10 +168,5 @@ def resolve_output_device(keyword: str = "") -> int | None:
         found = find_device_by_keyword(devices, keyword)
         if found and found.index is not None:
             return found.index
-    try:
-        default = sd.default.device
-        if isinstance(default, (tuple, list)) and default[1] >= 0:
-            return int(default[1])
-    except Exception:
-        pass
-    return None
+    _, out_idx = _default_io_indices()
+    return out_idx

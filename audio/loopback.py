@@ -1,4 +1,4 @@
-"""WASAPI Loopback 采集 Zoom 播放音频。"""
+"""WASAPI Loopback 采集会议软件播放音频。"""
 
 from __future__ import annotations
 

@@ -1,17 +1,23 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller 打包配置。用法: pyinstaller build.spec"""
 
-import sys
 from pathlib import Path
 
 block_cipher = None
 project_root = Path(SPECPATH)
 
+# 使用脱敏配置，避免把开发机上的 api_key 打进分发包
+bundled_config = project_root / "packaging" / "config.yaml"
+app_icon = project_root / "assets" / "app_icon.ico"
+
 a = Analysis(
     [str(project_root / "main.py")],
     pathex=[str(project_root)],
     binaries=[],
-    datas=[(str(project_root / "config.yaml"), ".")],
+    datas=[
+        (str(bundled_config), "."),
+        (str(app_icon), "assets"),
+    ],
     hiddenimports=[
         "argostranslate",
         "argostranslate.package",
@@ -24,6 +30,30 @@ a = Analysis(
         "pyaudiowpatch",
         "sounddevice",
         "yaml",
+        "websockets",
+        "httpx",
+        "httpx._transports",
+        "httpcore",
+        "PyQt6",
+        "PyQt6.QtCore",
+        "PyQt6.QtGui",
+        "PyQt6.QtWidgets",
+        "bailian",
+        "bailian.livetranslate",
+        "bailian.chat",
+        "pipeline.factory",
+        "pipeline.resources",
+        "pipeline.en_to_zh",
+        "pipeline.zh_to_en",
+        "pipeline.bailian_en_to_zh",
+        "pipeline.bailian_zh_to_en",
+        "translate.argos_translator",
+        "translate.lang_detect",
+        "storage.history_db",
+        "ui.main_window",
+        "ui.styles",
+        "ui.ptt_key_filter",
+        "config_loader",
     ],
     hookspath=[],
     hooksconfig={},
@@ -42,7 +72,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="ZoomTranslate",
+    name="TranslateTool",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -53,6 +83,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(app_icon),
 )
 
 coll = COLLECT(
@@ -63,5 +94,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="ZoomTranslate",
+    name="TranslateTool",
 )

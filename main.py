@@ -1,4 +1,4 @@
-"""Zoom 实时翻译工具入口。"""
+"""实时翻译工具入口。"""
 
 from __future__ import annotations
 
@@ -6,12 +6,11 @@ import logging
 import sys
 from pathlib import Path
 
-from config_loader import load_config
-from ui.main_window import run_app
-
 
 def setup_logging() -> None:
-    log_dir = Path(__file__).resolve().parent / "logs"
+    from config_loader import app_dir
+
+    log_dir = app_dir() / "logs"
     log_dir.mkdir(exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
@@ -25,12 +24,32 @@ def setup_logging() -> None:
 
 def main() -> None:
     setup_logging()
-    config_path = Path(__file__).resolve().parent / "config.yaml"
+
+    from config_loader import ensure_user_config, load_config
+
     if len(sys.argv) > 1:
         config_path = Path(sys.argv[1])
+    else:
+        config_path = ensure_user_config()
+
     config = load_config(config_path)
     logging.info("配置已加载: %s", config_path)
-    run_app(config)
+
+    # 先启动 Qt，再加载含 sounddevice / whisper 等重依赖的界面模块
+    from PyQt6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication(sys.argv)
+    logging.info("Qt 已初始化，正在加载界面模块…")
+
+    from ui.main_window import MainWindow
+
+    logging.info("正在创建主窗口…")
+    window = MainWindow(config, config_path=config_path)
+    window.showMaximized()
+    window.raise_()
+    window.activateWindow()
+    logging.info("界面已显示，进入事件循环")
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

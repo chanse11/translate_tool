@@ -6,31 +6,18 @@ import logging
 import threading
 from collections.abc import Callable
 
-from asr.whisper_asr import WhisperASR
-from translate.argos_translator import ArgosTranslator
-
 logger = logging.getLogger(__name__)
 
 
 class AppResources:
-    """Whisper（英/中）与 Argos 翻译，全局只加载一次。"""
+    """Whisper（英/中）与 Argos 翻译，仅在 preload() 时真正加载。"""
 
     def __init__(self, config: dict) -> None:
-        whisper_cfg = config.get("whisper", {})
-        beam_size = whisper_cfg.get("beam_size", 1)
-        self.en_asr = WhisperASR(
-            model_size=whisper_cfg.get("english_model", "small.en"),
-            device=whisper_cfg.get("device", "cpu"),
-            compute_type=whisper_cfg.get("compute_type", "int8"),
-            beam_size=beam_size,
-        )
-        self.zh_asr = WhisperASR(
-            model_size=whisper_cfg.get("chinese_model", "small"),
-            device=whisper_cfg.get("device", "cpu"),
-            compute_type=whisper_cfg.get("compute_type", "int8"),
-            beam_size=beam_size,
-        )
-        self.translator = ArgosTranslator()
+        self._config = config
+        self._whisper_cfg = config.get("whisper", {})
+        self.en_asr = None
+        self.zh_asr = None
+        self.translator = None
         self._ready = False
         self._lock = threading.Lock()
         self._error: str | None = None
@@ -55,6 +42,25 @@ class AppResources:
                 on_progress(msg)
 
         try:
+            progress("正在加载语音识别与翻译组件…")
+            from asr.whisper_asr import WhisperASR
+            from translate.argos_translator import ArgosTranslator
+
+            beam_size = self._whisper_cfg.get("beam_size", 1)
+            self.en_asr = WhisperASR(
+                model_size=self._whisper_cfg.get("english_model", "small.en"),
+                device=self._whisper_cfg.get("device", "cpu"),
+                compute_type=self._whisper_cfg.get("compute_type", "int8"),
+                beam_size=beam_size,
+            )
+            self.zh_asr = WhisperASR(
+                model_size=self._whisper_cfg.get("chinese_model", "small"),
+                device=self._whisper_cfg.get("device", "cpu"),
+                compute_type=self._whisper_cfg.get("compute_type", "int8"),
+                beam_size=beam_size,
+            )
+            self.translator = ArgosTranslator()
+
             progress("正在加载英语识别模型 (Whisper)…")
             self.en_asr.load()
             progress("正在加载中文识别模型 (Whisper)…")
@@ -74,7 +80,6 @@ class AppResources:
             raise
 
     def _warmup_tts(self) -> None:
-        """轻量预热 Edge TTS 事件循环（需联网，失败不影响 ASR/翻译）。"""
         try:
             from tts.edge_tts_player import EdgeTTSPlayer
 

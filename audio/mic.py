@@ -43,25 +43,38 @@ class MicRecorder:
                 channels=self._channels,
                 dtype="float32",
                 device=self._device_index,
+                blocksize=int(self._sample_rate * 0.03) or 480,
                 callback=self._callback,
             )
             self._stream.start()
-            logger.debug("麦克风录音开始")
+        try:
+            info = sd.query_devices(self._device_index)
+            name = info.get("name", "?") if isinstance(info, dict) else str(info)
+        except Exception:
+            name = "?"
+        logger.info("麦克风录音开始 (device=%s name=%s)", self._device_index, name)
 
     def stop(self) -> np.ndarray:
+        stream = None
         with self._lock:
             if not self._recording:
                 return np.array([], dtype=np.float32)
             self._recording = False
-            if self._stream:
-                self._stream.stop()
-                self._stream.close()
-                self._stream = None
+            stream = self._stream
+            self._stream = None
+        # 先停流再取锁拼帧，避免与 callback 死锁
+        if stream is not None:
+            try:
+                stream.stop()
+                stream.close()
+            except Exception:
+                logger.debug("关闭麦克风流失败", exc_info=True)
+        with self._lock:
             if not self._frames:
                 return np.array([], dtype=np.float32)
             audio = np.concatenate(self._frames)
-            logger.debug("麦克风录音结束, %d samples", len(audio))
-            return audio
+        logger.info("麦克风录音结束, %d samples (%.2fs)", len(audio), len(audio) / self._sample_rate)
+        return audio
 
     def _callback(
         self,
